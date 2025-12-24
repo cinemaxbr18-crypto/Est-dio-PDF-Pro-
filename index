@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estúdio PDF Pro - Conversor Avançado</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        
+        /* Simulação de Papel A4 na Tela */
+        .sheet {
+            background: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin: 0 auto 2rem auto;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        /* Dimensões Padrão */
+        .sheet.a4 { width: 210mm; height: 297mm; }
+        .sheet.letter { width: 216mm; height: 279mm; }
+
+        /* Comportamento de Impressão (CRÍTICO) */
+        @media print {
+            @page { margin: 0; size: auto; }
+            body { background: white; margin: 0; padding: 0; }
+            .no-print { display: none !important; }
+            .sheet {
+                box-shadow: none;
+                margin: 0;
+                page-break-after: always; /* Garante 1 imagem por folha */
+                width: 100% !important;
+                height: 100vh !important;
+            }
+            /* Garante que filtros CSS (brilho/contraste) sejam impressos */
+            img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+
+        /* Utilitários de Interface */
+        .tool-btn {
+            @apply p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors duration-200 flex items-center justify-center;
+        }
+        .active-filter { @apply border-blue-500 ring-2 ring-blue-200; }
+        
+        /* Slider Customizado */
+        input[type=range] {
+            @apply w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            @apply w-4 h-4 bg-blue-600 rounded-full appearance-none shadow hover:bg-blue-700 transition;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- BARRA LATERAL (Controles) -->
+    <aside class="no-print w-full md:w-80 bg-white border-r border-gray-200 flex flex-col z-20 shadow-lg">
+        <div class="p-5 border-b border-gray-100">
+            <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                <svg class="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                Estúdio PDF Pro
+            </h1>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-5 space-y-6">
+            
+            <!-- Adicionar Arquivos -->
+            <div class="space-y-2">
+                <label class="block text-sm font-semibold text-gray-700">Imagens</label>
+                <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-blue-300 rounded-xl cursor-pointer bg-blue-50 hover:bg-blue-100 transition group">
+                    <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                        <svg class="w-8 h-8 mb-2 text-blue-500 group-hover:scale-110 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                        <p class="text-sm text-blue-600 font-medium">Adicionar Imagens</p>
+                    </div>
+                    <input type="file" id="fileInput" class="hidden" multiple accept="image/*">
+                </label>
+                <p class="text-xs text-gray-500 text-center">Suporta PNG, JPG, JPEG, WEBP</p>
+            </div>
+
+            <!-- Controles Globais -->
+            <div class="space-y-4 pt-4 border-t border-gray-100">
+                <label class="block text-sm font-semibold text-gray-700">Configuração da Página</label>
+                
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="setPaper('a4')" id="btnA4" class="px-3 py-2 text-sm border rounded-md bg-blue-600 text-white border-blue-600">A4</button>
+                    <button onclick="setPaper('letter')" id="btnLetter" class="px-3 py-2 text-sm border rounded-md bg-white text-gray-600 hover:bg-gray-50">Letter</button>
+                </div>
+
+                <div>
+                    <span class="text-xs font-medium text-gray-500 mb-1 block">Margens</span>
+                    <select id="marginSelect" onchange="updateGlobalMargins()" class="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border">
+                        <option value="p-0">Sem Margens (Tela Cheia)</option>
+                        <option value="p-8">Padrão (Documento)</option>
+                        <option value="p-4">Estreita</option>
+                        <option value="p-16">Larga</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Controles de Edição (Só aparece quando tem imagem) -->
+            <div id="editControls" class="hidden space-y-4 pt-4 border-t border-gray-100 animate-fade-in">
+                <label class="block text-sm font-semibold text-gray-700">Ajustes da Imagem Selecionada</label>
+                
+                <div>
+                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>Brilho</span>
+                        <span id="valBrightness">100%</span>
+                    </div>
+                    <input type="range" id="rngBrightness" min="0" max="200" value="100" oninput="updateFilter()">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>Contraste</span>
+                        <span id="valContrast">100%</span>
+                    </div>
+                    <input type="range" id="rngContrast" min="0" max="200" value="100" oninput="updateFilter()">
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                    <button onclick="rotateCurrent(90)" class="flex-1 py-2 text-xs font-medium bg-gray-100 hover:bg-gray-200 rounded text-gray-700 flex items-center justify-center gap-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg> Rodar
+                    </button>
+                    <button onclick="toggleGrayscale()" id="btnGrayscale" class="flex-1 py-2 text-xs font-medium bg-gray-100 hover:bg-gray-200 rounded text-gray-700">P&B</button>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="p-5 border-t border-gray-200 bg-gray-50">
+            <button onclick="window.print()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition transform active:scale-95 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2-2v4h10z"></path></svg>
+                Gerar PDF
+            </button>
+            <p class="text-[10px] text-center text-gray-500 mt-2">Na janela de impressão, escolha "Guardar como PDF".</p>
+        </div>
+    </aside>
+
+    <!-- ÁREA PRINCIPAL (Visualização) -->
+    <main class="flex-1 overflow-y-auto bg-slate-200 p-4 md:p-8 relative" id="mainArea">
+        
+        <!-- Lista de Páginas -->
+        <div id="pagesContainer" class="flex flex-col items-center min-h-full pb-20">
+            
+            <!-- Estado Vazio -->
+            <div id="emptyState" class="flex flex-col items-center justify-center h-96 text-gray-400 mt-10">
+                <svg class="w-20 h-20 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                <p class="text-lg font-medium">Nenhuma imagem carregada</p>
+                <p class="text-sm">Use o menu à esquerda para começar</p>
+            </div>
+
+        </div>
+
+    </main>
+
+    <script>
+        // Estado da Aplicação
+        let pages = []; // { id, src, rotation, brightness, contrast, grayscale }
+        let selectedPageId = null;
+        let paperSize = 'a4';
+        let globalMargin = 'p-0';
+
+        const pagesContainer = document.getElementById('pagesContainer');
+        const emptyState = document.getElementById('emptyState');
+        const editControls = document.getElementById('editControls');
+        const fileInput = document.getElementById('fileInput');
+
+        // Inicialização de Eventos
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        // Drag and Drop Global
+        const mainArea = document.getElementById('mainArea');
+        mainArea.addEventListener('dragover', (e) => { e.preventDefault(); mainArea.classList.add('bg-blue-50'); });
+        mainArea.addEventListener('dragleave', (e) => { e.preventDefault(); mainArea.classList.remove('bg-blue-50'); });
+        mainArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            mainArea.classList.remove('bg-blue-50');
+            if(e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+        });
+
+        // Manipulação de Arquivos
+        function handleFiles(fileList) {
+            Array.from(fileList).forEach(file => {
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => addPage(e.target.result);
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        // Adicionar Página
+        function addPage(imgSrc) {
+            const id = Date.now() + Math.random().toString(36).substr(2, 9);
+            const pageData = {
+                id,
+                src: imgSrc,
+                rotation: 0,
+                brightness: 100,
+                contrast: 100,
+                grayscale: false
+            };
+            pages.push(pageData);
+            renderPages();
+            selectPage(id);
+        }
+
+        // Remover Página
+        function removePage(id, event) {
+            event.stopPropagation();
+            pages = pages.filter(p => p.id !== id);
+            if (selectedPageId === id) {
+                selectedPageId = pages.length ? pages[pages.length - 1].id : null;
+            }
+            renderPages();
+            updateEditControls();
+        }
+
+        // Selecionar Página para Edição
+        function selectPage(id) {
+            selectedPageId = id;
+            document.querySelectorAll('.sheet').forEach(el => {
+                if(el.dataset.id === id) el.classList.add('ring-4', 'ring-blue-400');
+                else el.classList.remove('ring-4', 'ring-blue-400');
+            });
+            updateEditControls();
+        }
+
+        // Atualizar Controles da UI baseados na seleção
+        function updateEditControls() {
+            const page = pages.find(p => p.id === selectedPageId);
+            
+            if (!page) {
+                editControls.classList.add('hidden');
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            editControls.classList.remove('hidden');
+            
+            document.getElementById('rngBrightness').value = page.brightness;
+            document.getElementById('valBrightness').innerText = page.brightness + '%';
+            document.getElementById('rngContrast').value = page.contrast;
+            document.getElementById('valContrast').innerText = page.contrast + '%';
+            
+            const btnGrayscale = document.getElementById('btnGrayscale');
+            if(page.grayscale) {
+                btnGrayscale.classList.add('bg-blue-600', 'text-white');
+                btnGrayscale.classList.remove('bg-gray-100', 'text-gray-700');
+            } else {
+                btnGrayscale.classList.remove('bg-blue-600', 'text-white');
+                btnGrayscale.classList.add('bg-gray-100', 'text-gray-700');
+            }
+        }
+
+        // Renderizar todas as páginas (DOM)
+        function renderPages() {
+            pagesContainer.innerHTML = '';
+            
+            if (pages.length === 0) {
+                pagesContainer.appendChild(emptyState);
+                return;
+            }
+
+            pages.forEach((page, index) => {
+                const sheet = document.createElement('div');
+                sheet.className = `sheet ${paperSize} flex items-center justify-center bg-white relative group cursor-pointer ${selectedPageId === page.id ? 'ring-4 ring-blue-400' : ''}`;
+                sheet.dataset.id = page.id;
+                sheet.onclick = () => selectPage(page.id);
+
+                // Container da imagem para aplicar margens
+                const contentContainer = document.createElement('div');
+                contentContainer.className = `w-full h-full flex items-center justify-center overflow-hidden transition-all duration-300 ${globalMargin}`;
+                
+                // Imagem
+                const img = document.createElement('img');
+                img.src = page.src;
+                img.className = 'max-w-full max-h-full object-contain transition-all duration-200';
+                
+                // Aplicação de Estilos Visuais na Imagem
+                const filterString = `brightness(${page.brightness}%) contrast(${page.contrast}%) ${page.grayscale ? 'grayscale(100%)' : ''}`;
+                img.style.filter = filterString;
+                img.style.transform = `rotate(${page.rotation}deg)`;
+
+                contentContainer.appendChild(img);
+                sheet.appendChild(contentContainer);
+
+                // Botão de Remover (Hover)
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'no-print absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition hover:bg-red-600 z-10';
+                deleteBtn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+                deleteBtn.onclick = (e) => removePage(page.id, e);
+                
+                // Número da página
+                const pageNum = document.createElement('div');
+                pageNum.className = 'no-print absolute bottom-2 right-2 text-xs text-gray-400 font-mono select-none';
+                pageNum.innerText = `Pág ${index + 1}`;
+
+                sheet.appendChild(deleteBtn);
+                sheet.appendChild(pageNum);
+                pagesContainer.appendChild(sheet);
+            });
+        }
+
+        // --- Funções de Edição ---
+
+        function updateFilter() {
+            if (!selectedPageId) return;
+            const page = pages.find(p => p.id === selectedPageId);
+            
+            page.brightness = document.getElementById('rngBrightness').value;
+            page.contrast = document.getElementById('rngContrast').value;
+            
+            document.getElementById('valBrightness').innerText = page.brightness + '%';
+            document.getElementById('valContrast').innerText = page.contrast + '%';
+            
+            renderPages(); // Re-render para atualizar visual
+            // Nota: Em app de produção, atualizaríamos apenas o estilo DOM diretamente por performance, mas aqui simplificamos.
+        }
+
+        function rotateCurrent(deg) {
+            if (!selectedPageId) return;
+            const page = pages.find(p => p.id === selectedPageId);
+            page.rotation = (page.rotation + deg) % 360;
+            renderPages();
+        }
+
+        function toggleGrayscale() {
+            if (!selectedPageId) return;
+            const page = pages.find(p => p.id === selectedPageId);
+            page.grayscale = !page.grayscale;
+            renderPages();
+            updateEditControls();
+        }
+
+        // --- Configurações Globais ---
+
+        function setPaper(size) {
+            paperSize = size;
+            document.getElementById('btnA4').className = size === 'a4' ? 'px-3 py-2 text-sm border rounded-md bg-blue-600 text-white border-blue-600' : 'px-3 py-2 text-sm border rounded-md bg-white text-gray-600 hover:bg-gray-50';
+            document.getElementById('btnLetter').className = size === 'letter' ? 'px-3 py-2 text-sm border rounded-md bg-blue-600 text-white border-blue-600' : 'px-3 py-2 text-sm border rounded-md bg-white text-gray-600 hover:bg-gray-50';
+            renderPages();
+        }
+
+        function updateGlobalMargins() {
+            globalMargin = document.getElementById('marginSelect').value;
+            renderPages();
+        }
+
+    </script>
+</body>
+</html>
